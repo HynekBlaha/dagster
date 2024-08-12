@@ -30,7 +30,8 @@ if TYPE_CHECKING:
         AutomationContext,
     )
 
-T = TypeVar("T")
+ExtraState = Union[str, AssetSubset, Sequence[AssetSubset]]
+T_ExtraState = TypeVar("T_ExtraState", bound=ExtraState)
 
 
 @whitelist_for_serdes
@@ -168,7 +169,7 @@ class AutomationConditionEvaluationState:
     previous_tick_evaluation_timestamp: Optional[float]
 
     max_storage_id: Optional[int]
-    extra_state_by_unique_id: Mapping[str, Optional[Union[AssetSubset, Sequence[AssetSubset]]]]
+    extra_state_by_unique_id: Mapping[str, Optional[ExtraState]]
 
     @property
     def asset_key(self) -> AssetKey:
@@ -184,9 +185,9 @@ class AutomationConditionNodeCursor(NamedTuple):
     true_subset: AssetSubset
     candidate_subset: Union[AssetSubset, HistoricalAllPartitionsSubsetSentinel]
     subsets_with_metadata: Sequence[AssetSubsetWithMetadata]
-    extra_state: Optional[Union[AssetSubset, Sequence[AssetSubset]]]
+    extra_state: Optional[ExtraState]
 
-    def get_extra_state(self, as_type: Type[T]) -> Optional[T]:
+    def get_extra_state(self, as_type: Type[T_ExtraState]) -> Optional[T_ExtraState]:
         """Returns the extra_state value if it is of the expected type. Otherwise, returns None."""
         if isinstance(self.extra_state, as_type):
             return self.extra_state
