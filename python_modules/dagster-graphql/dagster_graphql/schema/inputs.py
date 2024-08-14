@@ -1,5 +1,6 @@
 import graphene
 from dagster._core.events import DagsterEventType
+from dagster._core.execution.backfill import BulkActionsFilter, BulkActionStatus
 from dagster._core.storage.dagster_run import DagsterRunStatus, RunsFilter
 from dagster._time import datetime_from_timestamp
 from dagster._utils import check
@@ -373,6 +374,33 @@ class GrapheneTagInput(graphene.InputObjectType):
         name = "TagInput"
 
 
+class GrapheneBulkActionsFilter(graphene.InputObjectType):
+    status = graphene.List(
+        graphene.NonNull("dagster_graphql.schema.backfill.GrapheneBulkActionStatus")
+    )
+    createdBefore = graphene.InputField(graphene.Float)
+    createdAfter = graphene.InputField(graphene.Float)
+
+    class Meta:
+        description = """This type represents a filter on Dagster Bulk Actions (backfills)."""
+        name = "BulkActionsFilter"
+
+    def to_selector(self):
+        if self.status:
+            status = BulkActionStatus.from_graphql_input(self.status)
+        else:
+            status = None
+
+        created_before = datetime_from_timestamp(self.createdBefore) if self.createdBefore else None
+        created_after = datetime_from_timestamp(self.createdAfter) if self.createdAfter else None
+
+        return BulkActionsFilter(
+            status=status,
+            created_before=created_before,
+            created_after=created_after,
+        )
+
+
 types = [
     GrapheneAssetKeyInput,
     GrapheneExecutionMetadata,
@@ -394,4 +422,5 @@ types = [
     GrapheneStepOutputHandle,
     GrapheneTagInput,
     GrapheneReportRunlessAssetEventsParams,
+    GrapheneBulkActionsFilter,
 ]
