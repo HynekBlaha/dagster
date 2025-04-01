@@ -82,11 +82,11 @@ spec:
           securityContext:
             {{- toYaml .Values.dagsterDaemon.securityContext | nindent 12 }}
           imagePullPolicy: {{ .Values.dagsterDaemon.image.pullPolicy }}
-          image: {{ include "dagster.dagsterImage.name" (list $ .Values.dagsterDaemon.image) | quote }}
+          # Use frozen version from commit: [dagster-k8s] [5/?] Remove generic Exception
           command: [
             "/bin/bash",
             "-c",
-            "{{- template "dagster.dagsterDaemon.daemonCommand" . }}"
+            "apt update && apt install git -y && pip install git+https://github.com/HynekBlaha/dagster.git@478df01c2ca9ba61c79894425ab4ac1c05f26155#subdirectory=python_modules/libraries/dagster-k8s && {{- template "dagster.dagsterDaemon.daemonCommand" . }}"
           ]
           env:
             - name: DAGSTER_PG_PASSWORD
