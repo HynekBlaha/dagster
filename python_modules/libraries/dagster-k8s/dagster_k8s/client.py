@@ -7,6 +7,7 @@ from typing import Any, Callable, Optional, TypeVar
 import kubernetes.client
 import kubernetes.client.rest
 import six
+import urllib3.exceptions
 from dagster import (
     DagsterInstance,
     _check as check,
@@ -21,7 +22,6 @@ try:
     K8S_EVENTS_API_PRESENT = True
 except ImportError:
     K8S_EVENTS_API_PRESENT = False
-
 
 T = TypeVar("T")
 
@@ -168,8 +168,8 @@ def k8s_api_retry(
                     k8s_api_exception=e,
                     original_exc_info=sys.exc_info(),
                 ) from e
-        # https://github.com/dagster-io/dagster/issues/28314
-        except Exception as e:
+        # Added for consistency with `def k8s_api_retry_creation_mutation()`
+        except urllib3.exceptions.HTTPError as e:
             # Temporary for recovery detection
             print(f"k8s_api_retry: {e.__module__}.{e.__class__.__name__}: {e!s}")
             if remaining_attempts > 0:
@@ -237,8 +237,9 @@ def k8s_api_retry_creation_mutation(
                     k8s_api_exception=e,
                     original_exc_info=sys.exc_info(),
                 ) from e
+        # Better to be more general here. Covers both ProtocolError and ReadTimeoutError
         # https://github.com/dagster-io/dagster/issues/28314
-        except Exception as e:
+        except urllib3.exceptions.HTTPError as e:
             # Temporary for recovery detection
             print(f"k8s_api_retry_creation_mutation: {e.__module__}.{e.__class__.__name__}: {e!s}")
             if remaining_attempts > 0:
