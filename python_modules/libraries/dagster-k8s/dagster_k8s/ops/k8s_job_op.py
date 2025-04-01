@@ -19,7 +19,12 @@ from dagster._annotations import beta
 from dagster._core.errors import DagsterExecutionInterruptedError
 from dagster._utils.merger import merge_dicts
 
-from dagster_k8s.client import DEFAULT_JOB_POD_COUNT, DagsterKubernetesClient, k8s_api_retry
+from dagster_k8s.client import (
+    DEFAULT_JOB_POD_COUNT,
+    K8S_API_TIMEOUT_SECONDS,
+    DagsterKubernetesClient,
+    k8s_api_retry,
+)
 from dagster_k8s.container_context import K8sContainerContext
 from dagster_k8s.job import (
     DagsterK8sJobConfig,
@@ -382,6 +387,7 @@ def execute_k8s_job(
                 name=pod_to_watch,
                 namespace=namespace,
                 container=container_name,
+                _request_timeout=K8S_API_TIMEOUT_SECONDS,
             )
 
             while True:
