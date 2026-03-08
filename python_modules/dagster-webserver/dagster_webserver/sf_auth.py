@@ -1,5 +1,5 @@
 import copy
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from functools import cached_property
 
 from dagster._core.workspace.context import WorkspaceProcessContext, WorkspaceRequestContext
@@ -10,6 +10,7 @@ from dagster._core.workspace.permissions import (
     _get_disabled_reason,
     get_user_permissions,
 )
+from dagster._core.workspace.workspace import CodeLocationEntry, CodeLocationStatusEntry
 from starlette.requests import HTTPConnection
 
 
@@ -115,3 +116,32 @@ class SfAuthWorkspaceRequestContext(WorkspaceRequestContext):
                 permissions[Permissions.LAUNCH_PARTITION_BACKFILL] = False
                 permissions[Permissions.CANCEL_PARTITION_BACKFILL] = False
         return self._to_permission_result_map(permissions)
+
+    # Code location visibility — two overrides are required to fully hide a location:
+    #
+    #   get_code_location_entries()  — drives workspaceOrError GraphQL query (main nav, asset catalog)
+    #   get_code_location_statuses() — drives locationStatuses query (/deployment/locations page)
+    #
+    # Note: get_code_location_statuses() reads directly from _current_workspace (shared, not
+    # per-request), so it must be overridden here rather than at the process context level.
+    #
+    # Filtering is visual only — get_code_location() can still return a hidden location if called
+    # by name directly. Enforce access control via permissions_for_location() as well if needed.
+
+    @property
+    def _hidden_locations(self) -> set[str]:
+        return {"data-ops"} if self.user in self.restricted_users else set()
+
+    def get_code_location_entries(self) -> Mapping[str, CodeLocationEntry]:
+        return {
+            name: entry
+            for name, entry in super().get_code_location_entries().items()
+            if name not in self._hidden_locations
+        }
+
+    def get_code_location_statuses(self) -> Sequence[CodeLocationStatusEntry]:
+        return [
+            status
+            for status in super().get_code_location_statuses()
+            if status.location_name not in self._hidden_locations
+        ]
