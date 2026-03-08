@@ -1,0 +1,12 @@
+ARG DAGSTER_VERSION
+FROM dagster/dagster-celery-k8s:$DAGSTER_VERSION
+
+# Need to copy & install all packages that were modified by us.
+COPY python_modules/dagster-webserver /tmp/dagster-webserver
+COPY python_modules/dagster-graphql /tmp/dagster-graphql
+
+RUN pip install --no-cache-dir --no-deps \
+    -e /tmp/dagster-webserver \
+    -e /tmp/dagster-graphql
+
+# ./sf/build_and_push.sh <DAGSTER_VERSION>

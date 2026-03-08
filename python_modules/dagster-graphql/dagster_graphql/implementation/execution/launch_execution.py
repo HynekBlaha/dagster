@@ -65,6 +65,16 @@ async def _launch_pipeline_execution(
     check.inst_param(execution_params, "execution_params", ExecutionParams)
     check.bool_param(is_reexecuted, "is_reexecuted")
 
+    # In original code, only backfills have author.
+    # This small tweak adds it also to single runs.
+    viewer_tags = graphene_info.context.get_viewer_tags()
+    if viewer_tags:
+        execution_params = execution_params._replace(
+            execution_metadata=execution_params.execution_metadata._replace(
+                tags={**execution_params.execution_metadata.tags, **viewer_tags}
+            )
+        )
+
     run = await do_launch(graphene_info, execution_params, is_reexecuted)
     records = graphene_info.context.instance.get_run_records(RunsFilter(run_ids=[run.run_id]))
 

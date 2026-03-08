@@ -19,7 +19,7 @@ from dagster._cli.workspace.cli_target import (
 from dagster._core.instance import InstanceRef
 from dagster._core.telemetry import START_DAGSTER_WEBSERVER, log_action
 from dagster._core.telemetry_upload import uploading_logging_thread
-from dagster._core.workspace.context import IWorkspaceProcessContext, WorkspaceProcessContext
+from dagster._core.workspace.context import IWorkspaceProcessContext
 from dagster._serdes import deserialize_value
 from dagster._utils import DEFAULT_WORKSPACE_YAML_FILENAME, find_free_port, is_port_in_use
 from dagster._utils.interrupts import setup_interrupt_handlers
@@ -28,6 +28,7 @@ from dagster_shared.cli import workspace_options
 from dagster_shared.ipc import interrupt_on_ipc_shutdown_message
 
 from dagster_webserver.app import create_app_from_workspace_process_context
+from dagster_webserver.sf_auth import SfAuthWorkspaceProcessContext
 from dagster_webserver.version import __version__
 
 
@@ -251,7 +252,7 @@ def dagster_webserver(
         # Allow the instance components to change behavior in the context of a long running server process
         instance.optimize_for_webserver(db_statement_timeout, db_pool_recycle, db_pool_max_overflow)
 
-        with WorkspaceProcessContext(
+        with SfAuthWorkspaceProcessContext(
             instance,
             version=__version__,
             read_only=read_only,
