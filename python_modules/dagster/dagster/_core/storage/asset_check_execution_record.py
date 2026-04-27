@@ -257,12 +257,25 @@ class AssetCheckPartitionInfo:
     latest_materialization_storage_id: int | None
     # the storage id of the materialization that the last execution of the check targeted
     latest_target_materialization_storage_id: int | None
+    # the run id of the latest materialization event, used to detect the case where the check
+    # was yielded before the output in the same run (target_materialization_data is None but
+    # the check should still be considered current)
+    latest_materialization_run_id: str | None
 
     @property
     def is_current(self) -> bool:
         """Returns True if the latest check execution targets the latest materialization event."""
-        return (
-            self.latest_materialization_storage_id is None
-            or self.latest_materialization_storage_id
-            == self.latest_target_materialization_storage_id
-        )
+        if self.latest_materialization_storage_id is None:
+            return True
+        if self.latest_materialization_storage_id == self.latest_target_materialization_storage_id:
+            return True
+        # Handle case where check was yielded before output in the same run:
+        # target_materialization_data is None because the materialization hadn't been stored yet
+        # when the check evaluation was processed, but both are from the same run.
+        if (
+            self.latest_target_materialization_storage_id is None
+            and self.latest_materialization_run_id is not None
+            and self.latest_planned_run_id == self.latest_materialization_run_id
+        ):
+            return True
+        return False

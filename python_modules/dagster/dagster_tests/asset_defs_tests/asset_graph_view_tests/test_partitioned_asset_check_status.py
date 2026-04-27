@@ -560,3 +560,83 @@ def test_partitioned_check_targets_latest_materialization(
         assert partition in succeeded_subset
 
     asyncio.run(run_test())
+
+
+def test_partitioned_check_yielded_before_output(instance: DagsterInstance):
+    """Test that a check is SUCCEEDED even when yielded before the Output in the same run.
+
+    When AssetCheckResult is yielded before Output inside an @asset function, the check
+    evaluation is processed before the materialization is stored. This means
+    target_materialization_data is None (no materialization exists yet), but the check should
+    still be considered current because both the check and the materialization are from the
+    same run.
+
+    Without the fix, AssetCheckPartitionInfo.is_current returns False because:
+      latest_target_materialization_storage_id is None != latest_materialization_storage_id
+    causing the check partition to be cleared from all subsets and shown as MISSING.
+    """
+    partitions_def = dg.DailyPartitionsDefinition(start_date="2026-01-01")
+    test_asset, test_check = create_partitioned_asset_with_check(partitions_def)
+    defs = dg.Definitions(assets=[test_asset], asset_checks=[test_check])
+
+    asset_key = test_asset.key
+    check_key = test_check.check_key
+    partition = "2026-01-01"
+
+    async def run_test():
+        # Simulate: in a single run, AssetCheckResult is yielded BEFORE Output.
+        # This means the check evaluation event is stored first (with no target_materialization_data),
+        # then the materialization event is stored.
+        run = create_run_for_test(instance, status=DagsterRunStatus.STARTED)
+
+        # 1. Planned event
+        instance.event_log_storage.store_event(
+            create_check_planned_event(
+                run.run_id,
+                check_key,
+                partitions_subset=partitions_def.subset_with_partition_keys([partition]),
+                timestamp=1.0,
+            )
+        )
+
+        # 2. Check evaluation with NO target_materialization_data (check yielded before output)
+        instance.event_log_storage.store_event(
+            create_check_evaluation_event(
+                run.run_id,
+                check_key,
+                passed=True,
+                partition=partition,
+                target_materialization_data=None,  # No mat data — check yielded before output
+                timestamp=2.0,
+            )
+        )
+
+        # 3. Materialization stored AFTER check evaluation (output yielded after check result)
+        instance.event_log_storage.store_event(
+            create_materialization_event(run.run_id, asset_key, partition=partition, timestamp=3.0)
+        )
+
+        instance.handle_new_event(create_run_success_event(run.run_id, timestamp=4.0))
+
+        # The check should be SUCCEEDED, not MISSING.
+        # Before the fix, is_current=False because latest_target_materialization_storage_id is None
+        # but latest_materialization_storage_id is set, causing the check to be treated as stale.
+        view = AssetGraphView.for_test(defs, instance)
+
+        succeeded_subset = await get_status_subset(
+            view, check_key, AssetCheckExecutionResolvedStatus.SUCCEEDED
+        )
+        assert partition in succeeded_subset, (
+            f"Expected {partition} to be SUCCEEDED, but got: {succeeded_subset}. "
+            "This is the 'yield check before output' bug: when AssetCheckResult is yielded "
+            "before Output in the same run, target_materialization_data is None and the check "
+            "incorrectly appears as MISSING instead of SUCCEEDED."
+        )
+
+        missing_subset = await get_status_subset(view, check_key, None)
+        assert partition not in missing_subset, (
+            f"Expected {partition} NOT to be MISSING, but it was. "
+            "This confirms the 'yield check before output' bug."
+        )
+
+    asyncio.run(run_test())

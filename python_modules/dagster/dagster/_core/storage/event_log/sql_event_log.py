@@ -3290,6 +3290,12 @@ class SqlEventLogStorage(EventLogStorage):
             asset_partitions=partition_keys,
         )
 
+        # Alias for joining with SqlEventLogStorageTable to get the run_id of the latest
+        # materialization event. This is needed to detect the case where the check was yielded
+        # before the output in the same run (in which case target_materialization_data is None
+        # but the check should still be considered current).
+        latest_mat_event = SqlEventLogStorageTable.alias("latest_mat_event")
+
         # Main query to get all columns for the latest records, joined with latest
         # materialization storage ids
         query = db_select(
@@ -3301,15 +3307,22 @@ class SqlEventLogStorage(EventLogStorage):
                 AssetCheckExecutionsTable.c.materialization_event_storage_id,
                 AssetCheckExecutionsTable.c.run_id,
                 latest_materialization_ids_subquery.c.id.label("latest_materialization_storage_id"),
+                latest_mat_event.c.run_id.label("latest_materialization_run_id"),
             ]
         ).select_from(
             AssetCheckExecutionsTable.join(
                 latest_check_ids_subquery,
                 AssetCheckExecutionsTable.c.id == latest_check_ids_subquery.c.id,
-            ).join(
+            )
+            .join(
                 latest_materialization_ids_subquery,
                 AssetCheckExecutionsTable.c.partition
                 == latest_materialization_ids_subquery.c.partition,
+                isouter=True,
+            )
+            .join(
+                latest_mat_event,
+                latest_mat_event.c.id == latest_materialization_ids_subquery.c.id,
                 isouter=True,
             )
         )
@@ -3347,6 +3360,7 @@ class SqlEventLogStorage(EventLogStorage):
                     ),
                     default=None,
                 ),
+                latest_materialization_run_id=row["latest_materialization_run_id"],
             )
             for row in rows
         ]

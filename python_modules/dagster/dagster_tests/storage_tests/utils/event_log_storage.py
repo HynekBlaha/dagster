@@ -7414,6 +7414,83 @@ class TestEventLogStorage:
         assert len(partition_records) == 1
         assert not partition_records[0].is_current
 
+    def test_asset_check_partitioned_check_yielded_before_output(
+        self,
+        storage: EventLogStorage,
+        test_run_id: str,
+    ):
+        """Test that is_current is True when check was yielded before output in the same run.
+
+        When AssetCheckResult is yielded before Output inside an @asset function, the check
+        evaluation is processed before the materialization is stored. This means
+        target_materialization_data is None (no materialization exists yet at evaluation time),
+        so materialization_event_storage_id is NULL in the DB.
+
+        After Output is yielded, the materialization is stored in the DB. At this point,
+        is_current should still return True because both events share the same run_id.
+
+        Without the fix, is_current returns False because:
+            latest_target_materialization_storage_id (None) != latest_materialization_storage_id (set)
+        causing the check to be treated as stale and shown as MISSING in the UI.
+        """
+        run_id = test_run_id
+        asset_key = dg.AssetKey(["check_before_output_asset"])
+        check_key = dg.AssetCheckKey(asset_key, "check_before_output_check")
+
+        partitions_def = dg.StaticPartitionsDefinition(["a"])
+        partitions_subset = partitions_def.subset_with_partition_keys(["a"])
+
+        # Simulate: check evaluation is stored BEFORE the materialization (check yielded before output)
+
+        # 1. Planned event
+        storage.store_event(
+            _create_check_planned_event(run_id, check_key, partitions_subset=partitions_subset)
+        )
+
+        # 2. Check evaluation with NO target_materialization_data — materialization not stored yet
+        storage.store_event(
+            _create_check_evaluation_event(
+                run_id,
+                check_key,
+                passed=True,
+                partition="a",
+                target_materialization_data=None,
+            )
+        )
+
+        # 3. Materialization stored AFTER check evaluation (output yielded after check result)
+        storage.store_event(_create_materialization_event(run_id, asset_key, partition="a"))
+
+        # Verify the partition record
+        partition_records = storage.get_asset_check_partition_info([check_key])
+        assert len(partition_records) == 1
+        record = partition_records[0]
+
+        assert record.partition_key == "a"
+        assert record.latest_execution_status == AssetCheckExecutionRecordStatus.SUCCEEDED
+        assert record.latest_planned_run_id == run_id
+        assert record.latest_materialization_run_id == run_id
+
+        # The critical assertion: despite target_materialization_data being None,
+        # the check is still current because the check and the materialization are from the same run.
+        assert record.is_current, (
+            "is_current should be True when check and materialization share the same run_id, "
+            "even if target_materialization_data is None (check yielded before output)"
+        )
+
+        # Now re-materialize the partition in a DIFFERENT run — check becomes stale
+        new_run_id = make_new_run_id()
+        storage.store_event(_create_materialization_event(new_run_id, asset_key, partition="a"))
+
+        partition_records = storage.get_asset_check_partition_info([check_key])
+        assert len(partition_records) == 1
+        record = partition_records[0]
+
+        assert record.latest_materialization_run_id == new_run_id
+        assert not record.is_current, (
+            "is_current should be False when a newer materialization from a different run exists"
+        )
+
 
 def _create_check_planned_event(
     run_id: str,
